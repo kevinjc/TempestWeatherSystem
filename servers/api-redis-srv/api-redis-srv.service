@@ -1,0 +1,19 @@
+[Unit]
+Description=Read Redis database for Read/Write
+Wants=redis-server.service
+After=redis-server.service
+Wants=network-online.target
+After=network-online.target
+Requires=basic.target
+
+[Service]
+WorkingDirectory=/opt/python/api-redis-srv/
+ExecStart=/usr/bin/python3 /opt/python/api-redis-srv/apiserve.py
+ExecStop=/bin/kill -s QUIT $MAINPID
+Type=simple
+User=kevin
+
+
+[Install]
+WantedBy=multi-user.target
+

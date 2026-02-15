@@ -1,0 +1,1 @@
+58 4-21 * * * cd /opt/python/forecast_redis && /usr/bin/python3 get_forecast.py >>~/cron.log

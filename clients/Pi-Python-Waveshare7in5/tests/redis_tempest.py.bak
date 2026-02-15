@@ -1,0 +1,132 @@
+import socket
+import select
+import time
+import struct
+import json
+import datetime
+import redis
+import configparser
+
+# https://weatherflow.github.io/Tempest/api/udp/v143/
+
+# debug = 2
+#Redis_Server = localhost
+#Redis_Port = 6379
+#Redis_Instance = 0
+
+config = configparser.ConfigParser({'debug': '', 'Redis_Server': '', 'Redis_Port': '', 'Redis_Instance':''})
+config.read('config.ini')
+debug=int(config.get('DEFAULT', 'debug'))
+Redis_Server=(config.get('DEFAULT', 'Redis_Server'))
+Redis_Port=(config.get('DEFAULT', 'Redis_Port'))
+Redis_Instance=(config.get('DEFAULT', 'Redis_Instance'))
+
+rds = redis.Redis(host=Redis_Server, port=Redis_Port, db=Redis_Instance)
+
+# create broadcast listener socket
+def create_broadcast_listener_socket(broadcast_ip, broadcast_port):
+    b_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    b_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    b_sock.bind(('', broadcast_port))
+    mreq = struct.pack("4sl", socket.inet_aton(broadcast_ip), socket.INADDR_ANY)
+    b_sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+    return b_sock
+
+
+# ip/port to listen to
+BROADCAST_IP = '239.255.255.250'
+BROADCAST_PORT = 50222
+
+# create the listener socket
+sock_list = [create_broadcast_listener_socket(BROADCAST_IP, BROADCAST_PORT)]
+data_type = ""
+
+# Perma-loop, enable while True
+while True:
+# Temp-loop, enable while data_type and comment while True
+#while data_type != 'obs_st':
+    # small sleep otherwise this will loop too fast between messages and eat a lot of CPU
+    time.sleep(0.01)
+
+    # wait until there is a message to read
+    readable, writable, exceptional = select.select(sock_list, [], sock_list, 0)
+
+    # for each socket with a message
+    for s in readable:
+        data, addr = s.recvfrom(4096)
+
+        # the obs_st data has double square brackets`
+        # this makes it easier to deal with
+        data=data.replace(b'[[', b'[')
+        data=data.replace(b']]', b']')
+        
+        # convert data to json
+        data_json = json.loads(data)
+        if debug > 0:
+            print ( "Data type observed: ", data_json['type']  )
+        if debug > 2:
+            print("RAW DATA: ", data)
+
+        if data_json['type'] == 'obs_st':
+            data_type = "obs_st"
+            last=rds.get('obs_st')
+            rds.set('obs_last', str(last))
+            rds.set('obs_st', str(data_json['obs']))
+            if data_json['obs'][13] == 1:
+                rds.set('last_precipitation', str("rain"))
+            if data_json['obs'][13] == 2:
+                rds.set('last_precipitation', str("hail"))
+            # Event time/epoch is data_json['obs'][0]
+            # pressure = data_json['obs'][6]
+            # temp = data_json['obs'][7]
+            # humid = data_json['obs'][8]
+            # lux = data_json['obs'][9]
+            # uv = data_json['obs'][10]
+            # rad = data_json['obs'][11]
+            # batt = data_json['obs'][16]
+            # interval = data_json['obs'][17]
+            if debug > 0:
+                print (" Conditions at ", str(data_json['obs'][0]), " the weather readings are, temp: ", str(data_json['obs'][7]),  "  humidity: ", str(data_json['obs'][8]) )
+
+            if debug > 1:
+                print ( "  the observation: ", data_json['obs'] )
+
+
+        elif data_json['type'] == 'rapid_wind':
+            data_type = "ob"
+            rds.set('rapid_wind', str(data_json['ob']))
+            event_time=data_json['ob'][0]
+            windspd =  data_json['ob'][1]
+            winddir =  data_json['ob'][2] 
+            if debug >0:
+                print (" Wind at time ", str(data_json['ob'][0]), ", speed is: ", str(data_json['ob'][1]),  "  from direction: ", str(data_json['ob'][2]) )
+
+            if debug > 1:
+                print ( "the observation: ", data_json['ob'] )
+
+        elif data_json['type'] == 'evt_strike':
+            rds.set('evt_strike', str(data_json['evt']))
+            if debug >1:
+                print ( "the observation: ", data_json['evt'] )
+
+        elif data_json['type'] == 'evt_precip':
+            rds.set('evt_precip', str(data_json['evt']))
+            if debug > 1:
+                print ( "the observation: ", data_json['evt'] )
+
+        elif data_json['type'] ==  'hub_status':
+            rds.set('hub_status', str(data_json))
+            if debug > 1:
+                print ("the observation: ", data_json['uptime'])
+
+        elif data_json['type'] ==  'device_status':
+            rds.set('device_status', str(data_json))
+            if debug > 1:
+                print ("the observation: ", data_json['uptime'])
+
+        else:
+            print ( "unknown observation keys: ", data_json.keys() )
+            if debug > 1:
+                print(data_json)
+
+

@@ -1,0 +1,19 @@
+[Unit]
+Description=Read Tempest UDP Data to Redis database
+After=redis-server.service
+After=network-online.target
+Wants=redis-server.service
+Wants=network-online.target
+#Requires=basic.target
+
+[Service]
+WorkingDirectory=/opt/python/tempest_redis/
+ExecStart=/usr/bin/python3 /opt/python/tempest_redis/redis_tempest.py
+ExecStop=/bin/kill -s QUIT $MAINPID
+Type=simple
+User=kevin
+
+
+[Install]
+WantedBy=multi-user.target
+
