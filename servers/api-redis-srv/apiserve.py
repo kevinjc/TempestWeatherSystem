@@ -1,5 +1,5 @@
 # Python 3 server example
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler, HTTPServer
 import time
 import json
 import sys
@@ -37,9 +37,8 @@ if debug >0:
     print("Debug logs enabled, level ",debug)
 
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
-global forecast_dayafter, forecast_today, forecast_tomorrow, fw_download, fw_ipaddr, fw_lastdate, fw_upload, tempest_device_status, tempest_evt_precip, tempest_evt_strike, tempest_hub_status, tempest_last_precipitation, tempest_obs_last, tempest_obs_st, tempest_rapid_wind
+global forecast_dayafter, forecast_today, forecast_tomorrow, tempest_forecast, fw_download, fw_ipaddr, fw_lastdate, fw_upload, tempest_device_status, tempest_evt_precip, tempest_evt_strike, tempest_hub_status, tempest_last_precipitation, tempest_obs_last, tempest_obs_st, tempest_rapid_wind
 
 def GetBandwidth():
     global fw_lastdate, fw_ipaddr, fw_upload, fw_download
@@ -54,10 +53,11 @@ def GetBandwidth():
         print("read fw_download value updated to ",str(fw_download))
 
 def GetForecast():
-    global forecast_dayafter, forecast_today,forecast_tomorrow
+    global forecast_dayafter, forecast_today,forecast_tomorrow, tempest_forecast
     forecast_dayafter = ast.literal_eval(rds.get('forecast_dayafter').decode("utf-8"))
     forecast_today = ast.literal_eval(rds.get('forecast_today').decode("utf-8"))
     forecast_tomorrow = ast.literal_eval(rds.get('forecast_tomorrow').decode("utf-8"))
+    tempest_forecast = ast.literal_eval(rds.get('tempest_forecast').decode("utf-8"))
     if debug > 1:
         print("forecast for day after: ",forecast_dayafter)
         print("forecast for today: ",forecast_today)
@@ -84,7 +84,7 @@ def GetTempest():
         print("tempest data obs_st: ",tempest_obs_st)
         print("tempest data rapid_wind: ",tempest_rapid_wind)
 
-class MyServer(HTTPServer):
+class MyServer(ThreadingHTTPServer):
     def __init__(self, address, handler): 
         super().__init__(address, handler)
 
@@ -124,7 +124,9 @@ class myHandler(BaseHTTPRequestHandler):
                         'evt_strike': tempest_evt_strike, 'hub_status': tempest_hub_status,
                         'last_precipitation': tempest_last_precipitation, 'rapid_wind': tempest_rapid_wind,
                         'obs_st': tempest_obs_st , 'obs_last': tempest_obs_last },
-                        'forecast': {'today': forecast_today, 'tomorrow': forecast_tomorrow, 'dayafter': forecast_dayafter}
+                        'forecast': {'today': forecast_today, 'tomorrow': forecast_tomorrow, 
+                                     'dayafter': forecast_dayafter,
+                                     'tempest': tempest_forecast }
                         }
                 self.wfile.write(json.dumps(body, indent=4).encode("utf-8"))
             if 'tempest' in self.path:
@@ -137,7 +139,8 @@ class myHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(body, indent=4).encode("utf-8"))
             if 'forecast' in self.path:
                 GetForecast()
-                body = { 'today': forecast_today, 'tomorrow': forecast_tomorrow, 'dayafter': forecast_dayafter}
+                body = { 'today': forecast_today, 'tomorrow': forecast_tomorrow, 
+                        'dayafter': forecast_dayafter, 'tempest': tempest_forecast }
                 self.wfile.write(json.dumps(body, indent=4).encode("utf-8"))
         else:
             self.send_response(200)
