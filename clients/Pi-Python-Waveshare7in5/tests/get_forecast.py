@@ -4,7 +4,7 @@ import requests
 import json
 import datetime
 
-APIkey="880f41485f697f1aa0d9a3e0d7e91f4a"
+APIkey="xxxxxxx"
 lat=38.9189
 lon=-104.7045
 Debug=3
