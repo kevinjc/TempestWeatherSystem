@@ -51,3 +51,22 @@ This python app does not run as a service. Instead it is scheduled on the system
 I have a clients available and it may not be simple but it is easy to adapt for new clients. They are in the majority different Epaper screens from Waveshare or Seeed. The first client display was to use a Waveshare 7.5 single color Epaper directly on the RPI server using Python. This has been superseded by ESP32 devices so that clients and server can be separated where the server is in network closet with a UPS and clients don't have a filesystem that can be corrupted on power outages.
 
 
+### Pi Python Epaper 7.5 inch
+The original display, a Pi0w ran this display for six years or so until I cracked the screen putting it another case I printed.
+![picture of 7.5 inch Waveshare epaper](/pictures/Tempest_Pi_Python_weatherdisplay.jpg)
+
+### Epaper 2.15 Black-White-Red
+A new addition that I am no longer tweaking. This is an ESP32-s2mini running a Waveshare 2.15inch three color.
+![mini epaper on top of a monitor](/pictures/Tempest_EPD_2in15_monitor topper.jpg)
+
+### Heltek OLED mini 1inch
+Using an OLED display given to me, but now damaged after about a year of continuous use and some serious burn-in/burn-out.
+![oled mini display on top of a monitor](/pictures/Tempest_HeltekOLED.jpg)
+
+### Pi Python 13.3 inch in Imac G4
+New addition not yet finished, screen stopped working so a replacement must be acquired.
+![large epaper in an Imac G4](/pictures/Tempest_Pi_13-3_imacg4.jpg)
+
+### Seeed TRMNL DIY 7.5in Epaper
+New addition, work in progress. I'm using the GFX libraries from demos, not happy with the blocky/pixelated text. Might try the Waveshare methods, should work, looks smoother.
+![seeeed diy trmnl epaper display, incomplete](/pictures/Tempest_SeeedTRMNL-DIY.jpg)
