@@ -12,16 +12,21 @@
 #include <WiFi.h>
 #include <esp_sntp.h>
 
-const char* SSID     = "xxxxxx"; // replace "xxxxxx" with your wifi sid
-const char* PWD      = "xxxxxx"; // replace "xxxxxx" with your wifi password
+const char* SSID     = "Gondor";
+const char* PWD      = "BeaconsOfGondor";
 
 const int W = 800;
 const int H = 480;
 
 EPaper epd = EPaper();
+// Main Game here -- the weather data
+const char* WeatherURL = "http://10.76.76.8:8080/weather";
+const char* ForecastURL = "http://10.76.76.8:8080/forecast";
+// Secondary Game - show bandwidth results?
+bool do_bandwidth = true;
+const char* BandwidthURL = "http://10.76.76.8:8080/bandwidth";
 
-const char* WeatherURL = "http://xxxxxx:8080/weather/"; /// replace "xxxxxx" with your server ip or hostname
-const char* BandwidtURL = "http://xxxxxx:8080/bandwidth/"; /// replace "xxxxxx" with your server ip or hostname
+
 
 // Example: Eastern Time (USA)
 TimeChangeRule myDST = {"EDT", Second, Sun, Mar, 2, -240}; // UTC -4 hours
@@ -47,6 +52,8 @@ float Last_UV;
 int Last_Rads;
 String Last_Batt = "boot";
 float Last_TBatt = 0.0;
+String Last_Upload = "";
+String Last_Download = "";
 
 // Define button pins
 const int BUTTON_D1 = D1;  // First user button
@@ -164,7 +171,7 @@ void loop()
     Now_Batt = "Critical";
   }
   
-  DynamicJsonDocument jdoc(2048);
+  DynamicJsonDocument jdoc(3072);
   Serial.println("  Read Last_Temp: " + Last_Temp );
   Serial.println("  Read Last_Forecast: " + Last_Forecast );
   String Now_Temp = Last_Temp;
@@ -178,6 +185,8 @@ void loop()
   bool Now_Daylight = Last_Daylight;
   String Now_IconCode = Last_IconCode;
   float Now_TBatt = Last_TBatt;
+  String Now_Upload = Last_Upload;
+  String Now_Download = Last_Download;
 
   // Get IP Address
   ipString = WiFi.localIP().toString();
@@ -191,33 +200,26 @@ void loop()
 
   //Begin weather data
   Serial.println(" begin fetch weather");
-
   const char * headerkeys[] = {"Server", "Date", "Content-Type"} ;
   const size_t headerkeyssize = sizeof(headerkeys) / sizeof(headerkeys[0]);
   HTTPClient connect;
-
   connect.begin(WeatherURL);
   connect.addHeader("accept", "application/json");
   connect.collectHeaders( headerkeys, headerkeyssize);
   int respcode = connect.GET();
   Serial.println("  http response code: " + String(respcode));
-
   if (respcode == 200) {
     deserializeJson(jdoc, connect.getStream(), DeserializationOption::NestingLimit(20));
-
     // Pressure
     Now_Pressure = jdoc["tempest"]["obs_st"][6];
-    
     // Get the Temp reading
     float tempc = jdoc["tempest"]["obs_st"][7];
     Serial.println("   tempest temp in Celcius:  " + String(tempc) );
     int tempf = int(( tempc  * 1.8) + 32);
     Serial.println("   tempest temp in Fahrenheit:  " + String(tempf) );
     Now_Temp = String(tempf)+"F";
-
     // Humidity 
     Now_Humidity = jdoc["tempest"]["obs_st"][8];
-
     // Lux
     Now_Lux = jdoc["tempest"]["obs_st"][9];
     // UV
@@ -226,17 +228,6 @@ void loop()
     Now_Rads = jdoc["tempest"]["obs_st"][11];
     // Tempest Battery
     Now_TBatt = jdoc["tempest"]["obs_st"][16];
-    
-    // --------------------
-    // Get the Forecast Weather value
-    Serial.println("   reading forecast value from response: " + String(jdoc["forecast"]["today"]["weather"]) );
-    Now_Forecast = String(jdoc["forecast"]["today"]["weather"]);
-    
-    // --------------------
-    // Get the Forecast Icon code
-    Serial.println("   reading forecast icon code from response: " + String(jdoc["forecast"]["today"]["icon"]) );
-    Now_IconCode = String(jdoc["forecast"]["today"]["icon"]);
-    
     // --------------------
     //Get tempest time - it is in GMT epoch
     int TempestEpoch = jdoc["tempest"]["obs_st"][0];
@@ -279,6 +270,16 @@ void loop()
      else {
       Serial.println("    It is not yet sunrise.");
      }
+    
+    // --------------------
+    // This is the Old Forecast data from OpenWeather included in the tempest body
+    // Get the Forecast Weather value
+    Serial.println("   reading forecast value from response: " + String(jdoc["forecast"]["today"]["weather"]) );
+    Now_Forecast = String(jdoc["forecast"]["today"]["weather"]); 
+    // --------------------
+    // Get the Forecast Icon code
+    Serial.println("   reading forecast icon code from response: " + String(jdoc["forecast"]["today"]["icon"]) );
+    Now_IconCode = String(jdoc["forecast"]["today"]["icon"]);     
   }
   else {
     Serial.println(" HTTP connect issue ");
@@ -288,10 +289,39 @@ void loop()
   Serial.println("  Forecast Code:  " + Now_Forecast + ", Last code: " + Last_Forecast );
   Serial.println("  Tempest event time:  " + Now_Time );
   Serial.println("  Daylight is " + String(Now_Daylight ? "on":"off") );
-  
   //End HTTP connection
   connect.end();
 
+  //Begin forecast data
+  Serial.println(" begin fetch forecast");
+  connect.begin(ForecastURL);
+  connect.addHeader("accept", "application/json");
+  connect.collectHeaders( headerkeys, headerkeyssize);
+  respcode = connect.GET();
+  Serial.println(" http response code: " + String(respcode));
+  if (respcode == 200) {
+    deserializeJson(jdoc, connect.getStream(), DeserializationOption::NestingLimit(20));
+    // testing on the Tempest Forecast hourly
+    Serial.println(" Testing JSON Array daily");
+    // Count Daily the array
+    JsonArray daily = jdoc["daily"].as<JsonArray>();
+    size_t dlength = daily.size();
+    Serial.println("  length of daily array:" + String(dlength));
+
+    // County hourly
+    JsonArray hourly = jdoc["hourly"].as<JsonArray>();
+    size_t hlength = hourly.size();
+    Serial.println(" length of hourly array:" + String(hlength));
+//    for (JsonObject object : hourly) {
+//      int day = object["local_day"] | -1; // Default to -1 if missing
+//      int hour = object["local_hour"] | -1; // Default to -1 if missing
+//      const char* name = object["conditions"] | "Unknown";
+//      Serial.println(" on the "+String(day)+"th at "+String(hour)+ " o'clock it will be "+String(name));
+//    }
+  }
+  connect.end();
+  
+  // Done 
   if ( !Now_Temp.equals(Last_Temp) || !Now_Forecast.equals(Last_Forecast) || 
     Now_Daylight != Last_Daylight  || !Now_IconCode.equals(Last_IconCode) ||
     Now_Humidity != Last_Humidity || Now_Pressure != Last_Pressure ||
@@ -299,12 +329,14 @@ void loop()
     Now_Batt != Last_Batt
     ) {
 
-    Serial.println(" Last Values did not match, create image canvas and populate");
+    Serial.println("Last Values did not match, create image canvas and populate");
 
 
     Serial.println("Drawing main screen\r\n");
     initDisplay();
     //DEV_Delay_ms(500);
+
+
     
     //1.Draw black image
     //Paint_NewImage(BlackImage, W, H, 270, WHITE);
@@ -389,26 +421,116 @@ void loop()
     epd.drawString(Now_Time.c_str(), 5, 5, 2);
     //Temp,F
     Serial.println("Printing Temp: " + Now_Temp);
-    epd.drawString(Now_Temp, 10, 50, 8);
+    epd.drawString(Now_Temp, 12, 50, 8);
     //Forecast text
-    epd.drawString(Now_Forecast, 5, 220, 4);
+    epd.drawString(String(jdoc["daily"][0]["conditions"]), 6, 220, 4);
     // Humidity
-    epd.drawString( (String (Now_Humidity) + "%rh"),5, 290, 4);
+    epd.drawString( (String (Now_Humidity) + "%rh"),6, 290, 4);
     // Pressure
     epd.drawString( (String (Now_Pressure) + "MB"),220, 290, 2);
     if (Now_Pressure > Last_Pressure) {
-      epd.drawString( "rising",220, 325, 2);
+      epd.drawString( "rising",220, 315, 2);
     }
     else if (Last_Pressure > Now_Pressure) {
-      epd.drawString( "falling",220, 325, 2);
+      epd.drawString( "falling",220, 315, 2);
     }
+    // Final Left two daily forecasts
+    epd.drawString("Tomorrow " + String(jdoc["daily"][1]["conditions"]),6, 370, 2);
+    epd.drawString("The Day After " + String(jdoc["daily"][2]["conditions"]),6, 425, 2);
 
     // Middle Column
-    epd.drawString(("Lux: " +String(Now_Lux)), 280, 55, 2); 
-    epd.drawString((" UV: " +String(Now_UV)), 280, 100, 2);
-    epd.drawString(("Rad: " +String(Now_Rads)), 280, 145, 2);  
+    epd.drawString(("Lux: " +String(Now_Lux)), 280, 60, 2); 
+    epd.drawString((" UV: " +String(Now_UV)), 280, 105, 2);
+    epd.drawString(("Rad: " +String(Now_Rads)), 280, 150, 2);  
+
+    // Top Right Column
     epd.drawString(("Display Battery " +Now_Batt), 550,2, 1);
-    epd.drawString(("Tempest Batt " +String(Now_TBatt) +"v"), 550,35, 1);
+    epd.drawString(("Tempest Batt " +String(Now_TBatt) +"v"), 550,30, 1);
+
+    // Hourly box o data
+    epd.drawRect(450, 60, 345, 375, TFT_BLACK);
+    int hourlyy = 66;
+    int hourlysp =23;
+    
+    // which hourly indexes to print out? like six for 12 hours?
+    // extra i++ at bottom of branch to skip forward 2 each iteration
+    for (int i = 0; i < 14; i++) {
+      int hourlyx = 455;
+      Serial.print("  printing hour index "+String(i)+", ");
+      String Hour;
+      int h = jdoc["hourly"][i]["local_hour"] ;
+      Serial.println(h);
+      if (h == 24) {
+        Hour = "12am";
+      }
+      else if (h > 12){
+        h = h - 12;
+        Hour = String(h)+ "pm";
+      }
+      else if (h == 12){
+        Hour = "12pm";
+      }
+      else {
+        Hour = String(h)+ "am";
+      }
+      // first line of time and conditions
+      epd.drawString(
+        ( Hour + ": "+String(jdoc["hourly"][i]["conditions"]) 
+        ),455, hourlyy, 1);
+      // second line
+      hourlyy = hourlyy + hourlysp;
+      hourlyx = hourlyx + 35;
+      if ( jdoc["hourly"][i]["precip_probability"] > 0 ){
+        epd.drawString(
+          ( "Temp: " + String(jdoc["hourly"][i]["air_temperature"]) + ", "+
+          String(jdoc["hourly"][i]["precip_icon"]) +" " +
+          String(jdoc["hourly"][i]["precip_probability"]) +"%"
+        ),hourlyx, hourlyy, 1);        
+      }
+      else if ( !jdoc["hourly"][i]["feels_like"].isNull() ){ 
+        epd.drawString(
+          ( "Temp: " + String(jdoc["hourly"][i]["air_temperature"]) + ", feels like "+
+          String(jdoc["hourly"][i]["feels_like"]) 
+        ),hourlyx, hourlyy, 1);
+      }
+      else if ( int(jdoc["hourly"][i]["wind_avg"]) > 0 ){ 
+        epd.drawString(
+          ( "Temp: " + String(jdoc["hourly"][i]["air_temperature"]) + ", wind "+
+          String(jdoc["hourly"][i]["wind_avg"])+ " from " +
+          String(jdoc["hourly"][i]["wind_direction_cardinal"])
+        ),hourlyx, hourlyy, 1);
+      }
+      else{ 
+        epd.drawString(("Temp: " + String(jdoc["hourly"][i]["air_temperature"])),hourlyx, hourlyy, 1);
+      }
+      hourlyy = hourlyy + hourlysp + 7;
+      i++;
+    }
+    
+
+        // Since we are redrawing the screen let's get latest bandwidth data
+    if (do_bandwidth == true){
+      // Get Bandwidth Data
+      const char * headerkeys[] = {"Server", "Date", "Content-Type"} ;
+      const size_t headerkeyssize = sizeof(headerkeys) / sizeof(headerkeys[0]);
+      HTTPClient connect;
+      connect.begin(BandwidthURL);
+      connect.addHeader("accept", "application/json");
+      connect.collectHeaders( headerkeys, headerkeyssize);
+      int respcode = connect.GET();
+      Serial.println("  http response code: " + String(respcode));  
+      if (respcode == 200) {
+        deserializeJson(jdoc, connect.getStream(), DeserializationOption::NestingLimit(20));
+        epd.drawString(("Internet Dwload " + String(jdoc["download"])), 550,444, 1);
+        epd.drawString(("Internet Upload " +String(jdoc["upload"])), 550,462, 1);
+      }
+      //Else no Bandwidth data
+      else {
+        // set a no bandwidth data message
+        // do something
+      }
+      connect.end();
+    }
 
     //Send the Image
     epd.update();
